@@ -85,5 +85,7 @@
 #define MSTPB 1
 #define MSTPC 2
 #define MSTPD 3
+#define MSTPE 4
+#define MSTPF 5
 
 #endif /* ZEPHYR_INCLUDE_DT_BINDINGS_CLOCK_RX_H_ */

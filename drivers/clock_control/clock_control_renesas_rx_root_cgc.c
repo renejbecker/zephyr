@@ -43,6 +43,9 @@ static int clock_control_rx_init(const struct device *dev)
 #if CONFIG_HAS_RENESAS_RX_RDP
 	/* Call to HAL layer to initialize system clock and peripheral clock */
 	mcu_clock_setup();
+#elif CONFIG_HAS_RENESAS_RX_FSP
+	/* Initialize the system clock and peripheral clock */
+	bsp_clock_init();
 #endif
 	return 0;
 }
