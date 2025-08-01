@@ -7,3 +7,17 @@ config RENESAS_RX_ICU
 	depends on DT_HAS_RENESAS_RX_ICU_ENABLED
 	help
 	  Renesas RX series interrupt controller unit
+
+config RENESAS_RX_GRP_INTC
+	bool "Renesas RX series group interrupt"
+	default y
+	depends on DT_HAS_RENESAS_RX_GRP_INTC_ENABLED
+	help
+  	  Renesas RX series group interrupt feature
+
+config RENESAS_RX_GRP_INTC_FSP
+	bool "Renesas RX series group interrupt"
+	default y
+	depends on DT_HAS_RENESAS_RX_GRP_INTC_FSP_ENABLED
+	help
+  	  Renesas RX series group interrupt feature
