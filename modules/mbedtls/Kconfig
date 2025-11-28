@@ -25,7 +25,7 @@ if MBEDTLS
 
 choice MBEDTLS_IMPLEMENTATION
 	prompt "Select implementation"
-	default MBEDTLS_BUILTIN
+	default MBEDTLS_ALT
 
 config MBEDTLS_BUILTIN
 	bool "Use Zephyr in-tree mbedTLS version"
@@ -40,6 +40,13 @@ config MBEDTLS_LIBRARY
 	  Use external, out-of-tree prebuilt mbedTLS library. For advanced
 	  users only.
 
+config MBEDTLS_ALT
+	bool "Use mbedTLS library with alternative implementation"
+	select USE_RA_FSP_SCE if SOC_FAMILY_RENESAS_RA
+	select USE_RX_FSP_SCE if SOC_FAMILY_RENESAS_RX
+	help
+	  Link the mbedTLS sources with alternative implementation.
+
 endchoice
 
 config CUSTOM_MBEDTLS_CFG_FILE
@@ -51,8 +58,9 @@ config CUSTOM_MBEDTLS_CFG_FILE
 
 config MBEDTLS_CFG_FILE
 	string "mbed TLS configuration file" if CUSTOM_MBEDTLS_CFG_FILE
-	depends on MBEDTLS_BUILTIN
-	default "config-mbedtls.h"
+	depends on MBEDTLS_BUILTIN || MBEDTLS_ALT
+	default "alt_config.h" if MBEDTLS_ALT
+	default "config-mbedtls.h" if MBEDTLS_BUILTIN
 	help
 	  Use a specific mbedTLS configuration file. The default config file
 	  file can be tweaked with Kconfig. The default configuration is
@@ -62,11 +70,12 @@ config MBEDTLS_CFG_FILE
 	  alternative config.
 
 rsource "Kconfig.mbedtls"
+rsource "Kconfig.mbedtls_alt"
 
 config MBEDTLS_SSL_MAX_CONTENT_LEN
 	int "Max payload size for TLS protocol message"
 	default 1500
-	depends on MBEDTLS_BUILTIN
+	depends on MBEDTLS_BUILTIN || MBEDTLS_ALT
 	help
 	  The TLS standards mandate max payload size of 16384 bytes. So, for
 	  maximum operability and for general-purpose usage, that value must
@@ -158,7 +167,7 @@ endif # MBEDTLS_DEBUG
 
 config MBEDTLS_MEMORY_DEBUG
 	bool "mbed TLS memory debug activation"
-	depends on MBEDTLS_BUILTIN
+	depends on MBEDTLS_BUILTIN || MBEDTLS_ALT
 	help
 	  Enable debugging of buffer allocator memory issues. Automatically
 	  prints (to stderr) all (fatal) messages on memory allocation
