@@ -50,3 +50,16 @@ elseif("zephyr" STREQUAL ${ZEPHYR_TOOLCHAIN_VARIANT})
     list(APPEND TOOLCHAIN_LD_FLAGS -mcpu=rx600)
   endif()
 endif()
+
+# Flags not supported by llext linker
+# (regexps are supported and match whole word)
+set(LLEXT_REMOVE_FLAGS
+	-ffunction-sections
+	-fdata-sections
+	-Os
+)
+
+# Flags to be added to llext code compilation
+set(LLEXT_APPEND_FLAGS
+  -mjsr
+)
