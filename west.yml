@@ -24,7 +24,7 @@ manifest:
     - name: babblesim
       url-base: https://github.com/BabbleSim
     - name: renesas
-      url-base: https://gitlab.global.renesas.com/ra-zephyr-bsp-dev
+      url-base: https://github.com/renesas
 
   group-filter: [-babblesim, -optional]
 
@@ -226,10 +226,10 @@ manifest:
       path: modules/hal/quicklogic
       groups:
         - hal
-    - name: hal_renesas
+    - name: hal_renesas_fsp
       remote: renesas
       path: modules/hal/renesas
-      revision: develop-official-rx74m
+      revision: 9d1814cca565dca711e86258c2f15ca6256307c7
       groups:
         - hal
     - name: hal_rpi_pico
@@ -318,13 +318,24 @@ manifest:
     - name: lvgl
       revision: b03edc8e6282a963cd312cd0b409eb5ce263ea75
       path: modules/lib/gui/lvgl
+    - name: psa-crypto-driver
+      remote: renesas
+      repo-path: psa-crypto-driver
+      revision: fsp-rx.0.10.0+mbedtls-3.6.2+renesas.3
+      path: modules/crypto/psa-crypto-driver
+      groups:
+        - crypto
     - name: mbedtls
-      revision: 85440ef5fffa95d0e9971e9163719189cf34d979
+      remote: renesas
+      repo-path: mbedtls
+      revision: 3.6.2+renesas.3+zephyr
       path: modules/crypto/mbedtls
       groups:
         - crypto
     - name: mcuboot
-      revision: aa4fa2b6e17361dd3ce16a60883059778fd147a9
+      remote: renesas
+      repo-path: mcuboot
+      revision: support_mcuboot_rx_alpha5
       path: bootloader/mcuboot
       groups:
         - bootloader
