@@ -25,7 +25,7 @@ if MBEDTLS
 
 choice MBEDTLS_IMPLEMENTATION
 	prompt "Select implementation"
-	default MBEDTLS_ALT
+	default MBEDTLS_BUILTIN
 
 config MBEDTLS_BUILTIN
 	bool "Use Zephyr in-tree mbedTLS version"
