@@ -114,6 +114,8 @@ source "drivers/counter/Kconfig.nxp_mrt"
 
 source "drivers/counter/Kconfig.renesas_ra"
 
+source "drivers/counter/Kconfig.renesas_rx"
+
 source "drivers/counter/Kconfig.renesas_rz"
 
 source "drivers/counter/Kconfig.rts5912_slwtmr"
