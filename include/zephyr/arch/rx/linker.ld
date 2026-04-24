@@ -107,7 +107,7 @@ SECTIONS
 			KEEP(*(.fvectors))
 		} > VECTORS
 	#endif
-#else 
+#else
 	SECTION_PROLOGUE(.exvectors, ROM_START,)
 	{
 /* Located in generated directory. This file is populated by the
@@ -120,7 +120,7 @@ SECTIONS
 	} GROUP_LINK_IN(ROMABLE_REGION)
 #endif
 
-	SECTION_PROLOGUE(_TEXT_SECTION_NAME,,)
+	SECTION_PROLOGUE(_TEXT_SECTION_NAME,,SUBALIGN(4))
 	{
 		. = ALIGN(4);
 		PLACE_SYMBOL_HERE(__image_text_start);
