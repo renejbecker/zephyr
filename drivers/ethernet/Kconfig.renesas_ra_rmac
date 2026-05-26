@@ -39,4 +39,14 @@ config ETH_RENESAS_RA_USE_HW_WRITEBACK
 	  that the TX frame is written successfully. Note that enabling this option
 	  may cause ethernet write operations to take slightly longer.
 
+config ETH_RENESAS_RA_HW_BRIDGE
+	bool "Hardware bridge offload for RA8T2 RMAC"
+	depends on ETH_RENESAS_RA_RMAC && NET_ETHERNET_BRIDGE
+	default y
+	help
+	  Enable hardware-accelerated L2 bridge using the RA8T2 ESWM
+	  MAC forwarding table. Known unicast is forwarded between ports
+	  by hardware without CPU involvement. Unknown unicast and
+	  broadcast still pass through the CPU.
+
 endif

@@ -16,9 +16,12 @@
 #include <zephyr/net/phy.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/logging/log.h>
+#include "r_ether_api.h"
 #include "r_rmac.h"
 #include "r_layer3_switch.h"
 #include "eth.h"
+#include "eth_renesas_ra_eswm.h"
+#include <zephyr/shell/shell.h>
 
 LOG_MODULE_REGISTER(eth_renesas_ra, CONFIG_ETHERNET_LOG_LEVEL);
 
@@ -38,24 +41,6 @@ LOG_MODULE_REGISTER(eth_renesas_ra, CONFIG_ETHERNET_LOG_LEVEL);
 
 #define NET_BUF_TIMEOUT K_MSEC(100)
 #define RMAC_TX_TIMEOUT K_MSEC(1)
-
-struct eswm_renesas_ra_data {
-	layer3_switch_instance_ctrl_t *fsp_ctrl;
-	ether_switch_cfg_t *fsp_cfg;
-};
-
-struct eswm_renesas_ra_config {
-	const struct device *gwcaclk_dev;
-	const struct device *pclk_dev;
-	const struct device *eswclk_dev;
-	const struct device *eswphyclk_dev;
-	const struct device *ethphyclk_dev;
-	struct clock_control_ra_subsys_cfg pclk_subsys;
-	struct clock_control_ra_subsys_cfg ethphyclk_subsys;
-	const bool ethphyclk_enable;
-	const struct pinctrl_dev_config *pin_cfg;
-	void (*en_irq)(void);
-};
 
 #if defined(CONFIG_ETH_RENESAS_RA_USE_ZERO_COPY)
 struct eth_renesas_ra_buf_header {
@@ -91,6 +76,7 @@ struct eth_renesas_ra_data {
 	ether_cfg_t fsp_cfg;
 	ether_callback_args_t fsp_cb;
 	bool phy_link_up;
+	uint32_t rx_cpu_count;
 };
 
 struct eth_renesas_ra_config {
@@ -98,6 +84,7 @@ struct eth_renesas_ra_config {
 	uint8_t phy_conn_type;
 	const struct pinctrl_dev_config *pin_cfg;
 	const struct device *phy_dev;
+	const struct device *eswm_dev;
 };
 
 extern void layer3_switch_gwdi_isr(void);
@@ -107,6 +94,37 @@ extern void rmac_configure_reception_filter(rmac_instance_ctrl_t const *const p_
 extern void r_rmac_disable_reception(rmac_instance_ctrl_t *p_instance_ctrl);
 extern fsp_err_t rmac_do_link(rmac_instance_ctrl_t *const p_instance_ctrl,
 			      const layer3_switch_magic_packet_detection_t mode);
+extern ether_switch_instance_t eswm_inst;
+
+#if defined(CONFIG_SHELL)
+
+static int cmd_rmac_rx_count(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	struct net_if *iface;
+	int idx = 1;
+
+	while ((iface = net_if_get_by_index(idx++)) != NULL) {
+		if (net_if_l2(iface) != &NET_L2_GET_NAME(ETHERNET)) {
+			continue;
+		}
+		const struct device *dev = net_if_get_device(iface);
+		const struct eth_renesas_ra_data *data = dev->data;
+
+		shell_print(sh, "%s (ch%u): CPU RX frames = %u",
+			    dev->name,
+			    data->fsp_cfg.channel,
+			    data->rx_cpu_count);
+	}
+	return 0;
+}
+
+SHELL_CMD_REGISTER(rmac_rx_count, NULL, "Per-port CPU RX frame count", cmd_rmac_rx_count);
+
+#endif
+
 
 static void phy_link_cb(const struct device *phy_dev, struct phy_link_state *state, void *eth_dev)
 {
@@ -162,6 +180,9 @@ static void phy_link_cb(const struct device *phy_dev, struct phy_link_state *sta
 	rmac_init_buffers(&data->fsp_ctrl);
 	rmac_init_descriptors(&data->fsp_ctrl);
 	rmac_configure_reception_filter(&data->fsp_ctrl);
+#if defined(CONFIG_NET_VLAN)
+	data->fsp_ctrl->p_reg_etha->EAVCC_b.VEM = 3;
+#endif
 
 	fsp_err = rmac_do_link(&data->fsp_ctrl, LAYER3_SWITCH_MAGIC_PACKET_DETECTION_DISABLE);
 	if (fsp_err != FSP_SUCCESS) {
@@ -195,12 +216,6 @@ static void eth_rmac_cb(ether_callback_args_t *args)
 	default:
 		break;
 	}
-}
-
-static void eth_switch_cb(ether_switch_callback_args_t *args)
-{
-	/* Do nothing */
-	ARG_UNUSED(args);
 }
 
 static void phy_type_setting(const struct device *dev)
@@ -240,7 +255,43 @@ static void phy_type_setting(const struct device *dev)
 static enum ethernet_hw_caps eth_renesas_ra_get_capabilities(const struct device *dev __unused,
 							     struct net_if *iface __unused)
 {
-	return ETHERNET_LINK_10BASE | ETHERNET_LINK_100BASE | ETHERNET_LINK_1000BASE;
+	return
+#if defined(CONFIG_NET_PROMISCUOUS_MODE)
+		ETHERNET_PROMISC_MODE |
+#endif
+#if defined(CONFIG_NET_VLAN)
+		ETHERNET_HW_VLAN |
+#endif
+#if defined(CONFIG_ETH_RENESAS_RA_HW_BRIDGE)
+		ETHERNET_HW_BRIDGE |
+#endif
+		ETHERNET_LINK_10BASE | ETHERNET_LINK_100BASE | ETHERNET_LINK_1000BASE;
+	ARG_UNUSED(dev);
+}
+
+static int eth_renesas_ra_set_config(const struct device *dev, struct net_if *iface __unused,
+				     enum ethernet_config_type type,
+				     const struct ethernet_config *config)
+{
+	struct eth_renesas_ra_data *data = dev->data;
+	int ret = 0;
+
+	switch (type) {
+	case ETHERNET_CONFIG_TYPE_PROMISC_MODE:
+		/* Promiscuous mode is enable at intialization and cannot be changed in runtime */
+		ether_promiscuous_t mode =
+			config->promisc_mode ? ETHER_PROMISCUOUS_ENABLE : ETHER_PROMISCUOUS_DISABLE;
+
+		if (data->fsp_cfg.promiscuous != mode) {
+			ret = -ENOTSUP;
+		}
+		break;
+	default:
+		ret = -ENOTSUP;
+		break;
+	}
+
+	return ret;
 }
 
 static bool renesas_ra_eth_rx(const struct device *dev)
@@ -259,8 +310,10 @@ static bool renesas_ra_eth_rx(const struct device *dev)
 	rx_buf = data->rx_frame;
 	fsp_err = R_RMAC_Read(&data->fsp_ctrl, rx_buf, (uint32_t *)&len);
 #endif
+
 	if (fsp_err == FSP_SUCCESS) {
 		rx_buf_held = true;
+		data->rx_cpu_count++;
 	}
 
 	if (fsp_err == FSP_ERR_ETHER_ERROR_NO_DATA) {
@@ -443,62 +496,6 @@ tx_end:
 	return ret;
 }
 
-static int renesas_ra_eswm_init(const struct device *dev)
-{
-	struct eswm_renesas_ra_data *data = dev->data;
-	const struct eswm_renesas_ra_config *config = dev->config;
-	uint32_t gwcaclk, pclk, eswclk, eswphyclk, ethphyclk, phy_ref_rate;
-	fsp_err_t fsp_err = FSP_SUCCESS;
-	int ret = 0;
-
-	clock_control_get_rate(config->gwcaclk_dev, NULL, &gwcaclk);
-	clock_control_get_rate(config->pclk_dev, NULL, &pclk);
-	clock_control_get_rate(config->eswclk_dev, NULL, &eswclk);
-	clock_control_get_rate(config->eswphyclk_dev, NULL, &eswphyclk);
-	clock_control_get_rate(config->ethphyclk_dev, NULL, &ethphyclk);
-
-	if (config->ethphyclk_enable) {
-		clock_control_get_rate(config->ethphyclk_dev, NULL, &phy_ref_rate);
-
-		/* Internal phy clock should be 25/50 MHz */
-		if (phy_ref_rate != ETHPHYCLK_25MHZ && phy_ref_rate != ETHPHYCLK_50MHZ) {
-			LOG_DBG("Internal PHY clock %d differ from 25/50 MHz", phy_ref_rate);
-		}
-	}
-
-	/* Clock restrictions for eswm on HM */
-	if ((gwcaclk * 1.5 < eswclk) || (eswclk <= pclk) || (gwcaclk <= pclk)) {
-		LOG_ERR("ESWM clock invalid");
-		return -EIO;
-	}
-
-	fsp_err = R_LAYER3_SWITCH_Open(data->fsp_ctrl, data->fsp_cfg);
-	if (fsp_err != FSP_SUCCESS) {
-		LOG_ERR("ESWM open failed, err=%d", fsp_err);
-		return -EIO;
-	}
-
-	if (config->ethphyclk_enable) {
-		ret = pinctrl_apply_state(config->pin_cfg, PINCTRL_STATE_DEFAULT);
-		if (ret) {
-			return ret;
-		}
-
-		ret = clock_control_on(config->ethphyclk_dev,
-				       (clock_control_subsys_t)&config->ethphyclk_subsys);
-		if (ret) {
-			LOG_DBG("failed to start eth phy clock, err=%d", ret);
-		}
-	} else {
-		(void)clock_control_off(config->ethphyclk_dev,
-					(clock_control_subsys_t)&config->ethphyclk_subsys);
-	}
-
-	config->en_irq();
-
-	return 0;
-}
-
 static int renesas_ra_eth_init(const struct device *dev)
 {
 	struct eth_renesas_ra_data *data = dev->data;
@@ -542,6 +539,57 @@ static int renesas_ra_eth_init(const struct device *dev)
 	return 0;
 }
 
+#if defined(CONFIG_ETH_RENESAS_RA_HW_BRIDGE)
+
+static int eth_renesas_ra_bridge_addif(const struct device *dev, struct net_if *br,
+				       struct net_if *iface)
+{
+	const struct eth_renesas_ra_config *config = dev->config;
+	struct eth_renesas_ra_data *data = dev->data;
+
+	return renesas_ra_eswm_bridge_addif(config->eswm_dev, data->fsp_cfg.channel, br);
+}
+
+static int eth_renesas_ra_bridge_delif(const struct device *dev, struct net_if *br,
+				       struct net_if *iface)
+{
+	const struct eth_renesas_ra_config *config = dev->config;
+	struct eth_renesas_ra_data *data = dev->data;
+
+	return renesas_ra_eswm_bridge_delif(config->eswm_dev, data->fsp_cfg.channel, br);
+}
+
+static int eth_renesas_ra_bridge_start(const struct device *dev, struct net_if *br,
+				       struct net_if *iface)
+{
+	const struct eth_renesas_ra_config *config = dev->config;
+	struct eth_renesas_ra_data *data = dev->data;
+
+	return renesas_ra_eswm_bridge_start(config->eswm_dev, data->fsp_cfg.channel, br);
+}
+
+static int eth_renesas_ra_bridge_stop(const struct device *dev, struct net_if *br,
+				      struct net_if *iface)
+{
+	const struct eth_renesas_ra_config *config = dev->config;
+	struct eth_renesas_ra_data *data = dev->data;
+
+	return renesas_ra_eswm_bridge_stop(config->eswm_dev, data->fsp_cfg.channel, br);
+}
+
+static int eth_renesas_ra_bridge_fdb_dump(const struct device *dev, struct net_if *iface,
+					  void (*cb)(const uint8_t *mac, uint32_t port_mask,
+						     bool dynamic, void *user_data),
+					  void *user_data)
+{
+	const struct eth_renesas_ra_config *config = dev->config;
+
+	ARG_UNUSED(iface);
+	return renesas_ra_eswm_bridge_fdb_dump(config->eswm_dev, cb, user_data);
+}
+
+#endif /* CONFIG_ETH_RENESAS_RA_HW_BRIDGE */
+
 static const struct ethernet_api eth_renesas_ra_api = {
 	.iface_api.init = eth_renesas_ra_init_iface,
 #if defined(CONFIG_NET_STATISTICS_ETHERNET)
@@ -550,65 +598,15 @@ static const struct ethernet_api eth_renesas_ra_api = {
 	.get_capabilities = eth_renesas_ra_get_capabilities,
 	.get_phy = eth_renesas_ra_get_phy,
 	.send = eth_renesas_ra_tx,
+	.set_config = eth_renesas_ra_set_config,
+#if defined(CONFIG_ETH_RENESAS_RA_HW_BRIDGE)
+	.bridge_addif = eth_renesas_ra_bridge_addif,
+	.bridge_delif = eth_renesas_ra_bridge_delif,
+	.bridge_start = eth_renesas_ra_bridge_start,
+	.bridge_stop = eth_renesas_ra_bridge_stop,
+	.bridge_fdb_dump = eth_renesas_ra_bridge_fdb_dump,
+#endif
 };
-
-#define DT_DRV_COMPAT renesas_ra_eswm
-
-#define ETH_USE_INTERNAL_PHY_CLK(id)                                                               \
-	UTIL_AND(DT_NODE_HAS_COMPAT(id, renesas_ra_ethernet_rmac),                                 \
-		 DT_ENUM_HAS_VALUE(id, phy_clock_type, internal))
-
-PINCTRL_DT_INST_DEFINE(0);
-
-static void renesas_ra_eswm_init_irq(void)
-{
-	R_ICU->IELSR_b[DT_INST_IRQ_BY_NAME(0, gwdi, irq)].IELS =
-		BSP_PRV_IELS_ENUM(EVENT_ETHER_GWDI0);
-	IRQ_CONNECT(DT_INST_IRQ_BY_NAME(0, gwdi, irq), DT_INST_IRQ_BY_NAME(0, gwdi, priority),
-		    layer3_switch_gwdi_isr, DEVICE_DT_INST_GET(0), 0);
-	irq_enable(DT_INST_IRQ_BY_NAME(0, gwdi, irq));
-}
-
-static layer3_switch_extended_cfg_t eswm_ext_cfg = {
-	.p_ether_phy_instances = {NULL, NULL},
-	.fowarding_target_port_masks = {LAYER3_SWITCH_PORT_BITMASK_PORT2,
-					LAYER3_SWITCH_PORT_BITMASK_PORT2},
-};
-static layer3_switch_instance_ctrl_t eswm_ctrl = {0};
-static ether_switch_cfg_t eswm_cfg = {
-	.channel = 0,
-	.p_extend = &eswm_ext_cfg,
-	.p_callback = &eth_switch_cb,
-	.p_context = (void *)DEVICE_DT_INST_GET(0),
-	.irq = DT_INST_IRQ_BY_NAME(0, gwdi, irq),
-	.ipl = DT_INST_IRQ_BY_NAME(0, gwdi, priority),
-};
-static ether_switch_instance_t eswm_inst = {
-	.p_ctrl = (ether_switch_ctrl_t *)&eswm_ctrl,
-	.p_cfg = (ether_switch_cfg_t *)&eswm_cfg,
-	.p_api = (ether_switch_api_t *)&g_ether_switch_on_layer3_switch,
-};
-static struct eswm_renesas_ra_data eswm_data = {
-	.fsp_ctrl = &eswm_ctrl,
-	.fsp_cfg = &eswm_cfg,
-};
-static struct eswm_renesas_ra_config eswm_config = {
-	.gwcaclk_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR_BY_NAME(0, gwcaclk)),
-	.pclk_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR_BY_NAME(0, pclk)),
-	.eswclk_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR_BY_NAME(0, eswclk)),
-	.eswphyclk_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR_BY_NAME(0, eswphyclk)),
-	.ethphyclk_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR_BY_NAME(0, ethphyclk)),
-	.pclk_subsys.mstp = (uint32_t)DT_INST_CLOCKS_CELL_BY_NAME(0, pclk, mstp),
-	.pclk_subsys.stop_bit = DT_INST_CLOCKS_CELL_BY_NAME(0, pclk, stop_bit),
-	.ethphyclk_subsys.mstp = (uint32_t)DT_INST_CLOCKS_CELL_BY_NAME(0, ethphyclk, mstp),
-	.ethphyclk_subsys.stop_bit = DT_INST_CLOCKS_CELL_BY_NAME(0, ethphyclk, stop_bit),
-	.ethphyclk_enable =
-		DT_INST_FOREACH_CHILD_STATUS_OKAY_SEP(0, ETH_USE_INTERNAL_PHY_CLK, (||)),
-	.pin_cfg = PINCTRL_DT_INST_DEV_CONFIG_GET(0),
-	.en_irq = &renesas_ra_eswm_init_irq,
-};
-DEVICE_DT_INST_DEFINE(0, renesas_ra_eswm_init, NULL, &eswm_data, &eswm_config, POST_KERNEL,
-		      CONFIG_ETH_INIT_PRIORITY, NULL);
 
 #undef DT_DRV_COMPAT
 #define DT_DRV_COMPAT renesas_ra_ethernet_rmac
@@ -685,7 +683,7 @@ DEVICE_DT_INST_DEFINE(0, renesas_ra_eswm_init, NULL, &eswm_data, &eswm_config, P
 	}
 #define ETH_RENESAS_RA_DATA_BUF_DECLARE(n)                                                         \
 	struct eth_renesas_ra_buf_header eth##n##_tx_buf_header[] = {                              \
-		LISTIFY(ETH_TX_BUF_NUM(n), ETH_TX_BUF_HEADER_DECLARE, (,), n),                     \
+		LISTIFY(ETH_TX_BUF_NUM(n), ETH_TX_BUF_HEADER_DECLARE, (,), n),                        \
 	}
 #define ETH_RENESAS_RA_DATA_BUF_PROP_DECLARE(n)                                                    \
 	.tx_buf_header = eth##n##_tx_buf_header, .tx_buf_idx = 0, .tx_buf_num = ETH_TX_BUF_NUM(n)
@@ -708,20 +706,20 @@ DEVICE_DT_INST_DEFINE(0, renesas_ra_eswm_init, NULL, &eswm_data, &eswm_config, P
 	BUILD_ASSERT(ETH_DESC_NUM(n) <= ETH_BUF_NUM(n), "invalid buffer settings");                \
                                                                                                    \
 	PINCTRL_DT_INST_DEFINE(n);                                                                 \
-	LISTIFY(ETH_RX_BUF_NUM(n), ETH_RX_BUF_DECLARE, (), n);                                     \
-	LISTIFY(ETH_TX_BUF_NUM(n), ETH_TX_BUF_DECLARE, (), n);                                     \
+	LISTIFY(ETH_RX_BUF_NUM(n), ETH_RX_BUF_DECLARE, (), n);                                        \
+	LISTIFY(ETH_TX_BUF_NUM(n), ETH_TX_BUF_DECLARE, (), n);                                        \
 	static uint8_t *eth##n##_pp_buffers[] = {                                                  \
-		LISTIFY(ETH_RX_BUF_NUM(n), ETH_RX_BUF_PTR_DECLARE, (,), n),                        \
-				       LISTIFY(ETH_TX_BUF_NUM(n), ETH_TX_BUF_PTR_DECLARE, (,), n), \
+		LISTIFY(ETH_RX_BUF_NUM(n), ETH_RX_BUF_PTR_DECLARE, (,), n),                           \
+				       LISTIFY(ETH_TX_BUF_NUM(n), ETH_TX_BUF_PTR_DECLARE, (,), n),    \
 	};                                                                                         \
                                                                                                    \
-	LISTIFY(ETH_RX_QUEUE_NUM(n), ETH_RX_DESC_DECLARE, (), n);                                  \
-	LISTIFY(ETH_TX_QUEUE_NUM(n), ETH_TX_DESC_DECLARE, (), n);                                  \
+	LISTIFY(ETH_RX_QUEUE_NUM(n), ETH_RX_DESC_DECLARE, (), n);                                     \
+	LISTIFY(ETH_TX_QUEUE_NUM(n), ETH_TX_DESC_DECLARE, (), n);                                     \
 	static rmac_queue_info_t eth##n##_rx_queue_list[ETH_RX_QUEUE_NUM(n)] = {                   \
-		LISTIFY(ETH_RX_QUEUE_NUM(n), ETH_RX_QUEUE_DECLARE, (,), n),                        \
+		LISTIFY(ETH_RX_QUEUE_NUM(n), ETH_RX_QUEUE_DECLARE, (,), n),                           \
 	};                                                                                         \
 	static rmac_queue_info_t eth##n##_tx_queue_list[ETH_TX_QUEUE_NUM(n)] = {                   \
-		LISTIFY(ETH_TX_QUEUE_NUM(n), ETH_TX_QUEUE_DECLARE, (,), n),                        \
+		LISTIFY(ETH_TX_QUEUE_NUM(n), ETH_TX_QUEUE_DECLARE, (,), n),                           \
 	};                                                                                         \
 	static rmac_buffer_node_t eth##n##_buffer_node_list[ETH_BUF_NUM(n)];                       \
 	ETH_RENESAS_RA_DATA_BUF_DECLARE(n);                                                        \
@@ -748,7 +746,9 @@ DEVICE_DT_INST_DEFINE(0, renesas_ra_eswm_init, NULL, &eswm_data, &eswm_config, P
 				.padding = ETHER_PADDING_DISABLE,                                  \
 				.zerocopy = ETH_RENESAS_RA_DATA_BUF_MODE,                          \
 				.multicast = ETHER_MULTICAST_ENABLE,                               \
-				.promiscuous = ETHER_PROMISCUOUS_DISABLE,                          \
+				.promiscuous = IS_ENABLED(CONFIG_NET_PROMISCUOUS_MODE)             \
+						       ? ETHER_PROMISCUOUS_ENABLE                  \
+						       : ETHER_PROMISCUOUS_DISABLE,                \
 				.flow_control = ETHER_FLOW_CONTROL_DISABLE,                        \
 				.p_callback = &eth_rmac_cb,                                        \
 				.p_context = (void *)DEVICE_DT_INST_GET(n),                        \
@@ -760,6 +760,7 @@ DEVICE_DT_INST_DEFINE(0, renesas_ra_eswm_init, NULL, &eswm_data, &eswm_config, P
 		.phy_conn_type = DT_INST_ENUM_IDX(n, phy_connection_type),                         \
 		.pin_cfg = PINCTRL_DT_INST_DEV_CONFIG_GET(n),                                      \
 		.phy_dev = DEVICE_DT_GET(DT_INST_PHANDLE(n, phy_handle)),                          \
+		.eswm_dev = DEVICE_DT_GET(DT_INST_PARENT(n)),                                      \
 	};                                                                                         \
 	ETH_NET_DEVICE_DT_INST_DEFINE(n, renesas_ra_eth_init, NULL, &eth##n##_renesas_ra_data,     \
 				      &eth##n##_renesas_ra_config, CONFIG_ETH_INIT_PRIORITY,       \
