@@ -186,6 +186,50 @@ static int dsa_get_config(const struct device *dev,
 	return dsa_switch_ctx->dapi->get_config(dev, type, config);
 }
 
+static int dsa_bridge_addif(const struct device *dev, struct net_if *br, struct net_if *iface)
+{
+	struct dsa_switch_context *dsa_switch_ctx = dev->data;
+
+	if (!dsa_switch_ctx->dapi->bridge_addif) {
+		return -ENOTSUP;
+	}
+
+	return dsa_switch_ctx->dapi->bridge_addif(dev, br, iface);
+}
+
+static int dsa_bridge_delif(const struct device *dev, struct net_if *br, struct net_if *iface)
+{
+	struct dsa_switch_context *dsa_switch_ctx = dev->data;
+
+	if (!dsa_switch_ctx->dapi->bridge_delif) {
+		return -ENOTSUP;
+	}
+
+	return dsa_switch_ctx->dapi->bridge_delif(dev, br, iface);
+}
+
+static int dsa_bridge_start(const struct device *dev, struct net_if *br, struct net_if *iface)
+{
+	struct dsa_switch_context *dsa_switch_ctx = dev->data;
+
+	if (!dsa_switch_ctx->dapi->bridge_start) {
+		return -ENOTSUP;
+	}
+
+	return dsa_switch_ctx->dapi->bridge_start(dev, br, iface);
+}
+
+static int dsa_bridge_stop(const struct device *dev, struct net_if *br, struct net_if *iface)
+{
+	struct dsa_switch_context *dsa_switch_ctx = dev->data;
+
+	if (!dsa_switch_ctx->dapi->bridge_stop) {
+		return -ENOTSUP;
+	}
+
+	return dsa_switch_ctx->dapi->bridge_stop(dev, br, iface);
+}
+
 const struct ethernet_api dsa_eth_api = {
 	.iface_api.init = dsa_port_iface_init,
 	.get_phy = dsa_port_get_phy,
@@ -196,4 +240,8 @@ const struct ethernet_api dsa_eth_api = {
 	.get_capabilities = dsa_port_get_capabilities,
 	.set_config = dsa_set_config,
 	.get_config = dsa_get_config,
+	.bridge_addif = dsa_bridge_addif,
+	.bridge_delif = dsa_bridge_delif,
+	.bridge_start = dsa_bridge_start,
+	.bridge_stop = dsa_bridge_stop,
 };
