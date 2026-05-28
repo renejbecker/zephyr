@@ -76,7 +76,6 @@ struct eth_renesas_ra_data {
 	ether_cfg_t fsp_cfg;
 	ether_callback_args_t fsp_cb;
 	bool phy_link_up;
-	uint32_t rx_cpu_count;
 };
 
 struct eth_renesas_ra_config {
@@ -95,36 +94,6 @@ extern void r_rmac_disable_reception(rmac_instance_ctrl_t *p_instance_ctrl);
 extern fsp_err_t rmac_do_link(rmac_instance_ctrl_t *const p_instance_ctrl,
 			      const layer3_switch_magic_packet_detection_t mode);
 extern ether_switch_instance_t eswm_inst;
-
-#if defined(CONFIG_SHELL)
-
-static int cmd_rmac_rx_count(const struct shell *sh, size_t argc, char **argv)
-{
-	ARG_UNUSED(argc);
-	ARG_UNUSED(argv);
-
-	struct net_if *iface;
-	int idx = 1;
-
-	while ((iface = net_if_get_by_index(idx++)) != NULL) {
-		if (net_if_l2(iface) != &NET_L2_GET_NAME(ETHERNET)) {
-			continue;
-		}
-		const struct device *dev = net_if_get_device(iface);
-		const struct eth_renesas_ra_data *data = dev->data;
-
-		shell_print(sh, "%s (ch%u): CPU RX frames = %u",
-			    dev->name,
-			    data->fsp_cfg.channel,
-			    data->rx_cpu_count);
-	}
-	return 0;
-}
-
-SHELL_CMD_REGISTER(rmac_rx_count, NULL, "Per-port CPU RX frame count", cmd_rmac_rx_count);
-
-#endif
-
 
 static void phy_link_cb(const struct device *phy_dev, struct phy_link_state *state, void *eth_dev)
 {
@@ -313,7 +282,6 @@ static bool renesas_ra_eth_rx(const struct device *dev)
 
 	if (fsp_err == FSP_SUCCESS) {
 		rx_buf_held = true;
-		data->rx_cpu_count++;
 	}
 
 	if (fsp_err == FSP_ERR_ETHER_ERROR_NO_DATA) {
@@ -683,7 +651,7 @@ static const struct ethernet_api eth_renesas_ra_api = {
 	}
 #define ETH_RENESAS_RA_DATA_BUF_DECLARE(n)                                                         \
 	struct eth_renesas_ra_buf_header eth##n##_tx_buf_header[] = {                              \
-		LISTIFY(ETH_TX_BUF_NUM(n), ETH_TX_BUF_HEADER_DECLARE, (,), n),                        \
+		LISTIFY(ETH_TX_BUF_NUM(n), ETH_TX_BUF_HEADER_DECLARE, (,), n),                     \
 	}
 #define ETH_RENESAS_RA_DATA_BUF_PROP_DECLARE(n)                                                    \
 	.tx_buf_header = eth##n##_tx_buf_header, .tx_buf_idx = 0, .tx_buf_num = ETH_TX_BUF_NUM(n)
@@ -706,20 +674,20 @@ static const struct ethernet_api eth_renesas_ra_api = {
 	BUILD_ASSERT(ETH_DESC_NUM(n) <= ETH_BUF_NUM(n), "invalid buffer settings");                \
                                                                                                    \
 	PINCTRL_DT_INST_DEFINE(n);                                                                 \
-	LISTIFY(ETH_RX_BUF_NUM(n), ETH_RX_BUF_DECLARE, (), n);                                        \
-	LISTIFY(ETH_TX_BUF_NUM(n), ETH_TX_BUF_DECLARE, (), n);                                        \
+	LISTIFY(ETH_RX_BUF_NUM(n), ETH_RX_BUF_DECLARE, (), n);                                     \
+	LISTIFY(ETH_TX_BUF_NUM(n), ETH_TX_BUF_DECLARE, (), n);                                     \
 	static uint8_t *eth##n##_pp_buffers[] = {                                                  \
-		LISTIFY(ETH_RX_BUF_NUM(n), ETH_RX_BUF_PTR_DECLARE, (,), n),                           \
-				       LISTIFY(ETH_TX_BUF_NUM(n), ETH_TX_BUF_PTR_DECLARE, (,), n),    \
+		LISTIFY(ETH_RX_BUF_NUM(n), ETH_RX_BUF_PTR_DECLARE, (,), n),                        \
+				       LISTIFY(ETH_TX_BUF_NUM(n), ETH_TX_BUF_PTR_DECLARE, (,), n), \
 	};                                                                                         \
                                                                                                    \
-	LISTIFY(ETH_RX_QUEUE_NUM(n), ETH_RX_DESC_DECLARE, (), n);                                     \
-	LISTIFY(ETH_TX_QUEUE_NUM(n), ETH_TX_DESC_DECLARE, (), n);                                     \
+	LISTIFY(ETH_RX_QUEUE_NUM(n), ETH_RX_DESC_DECLARE, (), n);                                  \
+	LISTIFY(ETH_TX_QUEUE_NUM(n), ETH_TX_DESC_DECLARE, (), n);                                  \
 	static rmac_queue_info_t eth##n##_rx_queue_list[ETH_RX_QUEUE_NUM(n)] = {                   \
-		LISTIFY(ETH_RX_QUEUE_NUM(n), ETH_RX_QUEUE_DECLARE, (,), n),                           \
+		LISTIFY(ETH_RX_QUEUE_NUM(n), ETH_RX_QUEUE_DECLARE, (,), n),                        \
 	};                                                                                         \
 	static rmac_queue_info_t eth##n##_tx_queue_list[ETH_TX_QUEUE_NUM(n)] = {                   \
-		LISTIFY(ETH_TX_QUEUE_NUM(n), ETH_TX_QUEUE_DECLARE, (,), n),                           \
+		LISTIFY(ETH_TX_QUEUE_NUM(n), ETH_TX_QUEUE_DECLARE, (,), n),                        \
 	};                                                                                         \
 	static rmac_buffer_node_t eth##n##_buffer_node_list[ETH_BUF_NUM(n)];                       \
 	ETH_RENESAS_RA_DATA_BUF_DECLARE(n);                                                        \

@@ -49,4 +49,16 @@ config ETH_RENESAS_RA_HW_BRIDGE
 	  by hardware without CPU involvement. Unknown unicast and
 	  broadcast still pass through the CPU.
 
+config ETH_RENESAS_RA_HW_BRIDGE_MAC_AGING_TIME
+	int "Hardware bridge MAC table aging time (seconds)"
+	depends on ETH_RENESAS_RA_HW_BRIDGE
+	default 300
+	range 10 3600
+	help
+	  Time in seconds before an inactive hardware MAC table entry is
+	  removed from the ESWM forwarding table. Shorter values recover
+	  faster after a host moves to a different port; longer values
+	  reduce re-learning overhead on stable networks.
+	  IEEE 802.1D recommends 300 seconds as the default.
+
 endif

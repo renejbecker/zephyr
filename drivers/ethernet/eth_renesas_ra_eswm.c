@@ -187,7 +187,7 @@ static int rmac_bridge_configure_learning(struct eswm_renesas_ra_data *eswm)
 		.p_table                    = NULL,
 		.unsecure_entry_maximum_num = RMAC_BRIDGE_MAC_ENTRY_MAX,
 		.mac_entry_aging_enable     = true,
-		.mac_entry_aging_time_sec   = 300,
+		.mac_entry_aging_time_sec   = CONFIG_ETH_RENESAS_RA_HW_BRIDGE_MAC_AGING_TIME,
 		.vlan_mode                  = LAYER3_SWITCH_VLAN_MODE_NO_VLAN,
 	};
 	uint32_t mask = eswm->bridge_port_mask;
