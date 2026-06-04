@@ -1,0 +1,128 @@
+
+// get rid of the too small storage partition defined in ek_ra8m1.dts
+/delete-node/ &storage_partition;
+
+/ {
+    chosen {
+		zephyr,code-partition = &slot0_partition;
+		zephyr,uart-mcumgr = &cdc_acm_uart0;
+	};
+
+//	soc {
+//		flash_controller2: flash-controller@2 {
+//			compatible = "zephyr,sim-flash";
+//			reg = <0x00000000 DT_SIZE_K(32)>;
+//
+//			#address-cells = <1>;
+//			#size-cells = <1>;
+//			erase-value = <0x00>;
+//
+//			flash_sim0: flash_sim@0 {
+//				status = "okay";
+//				compatible = "soc-nv-flash";
+//				erase-block-size = <512>;
+//				write-block-size = <1>;
+//				reg = <0x00000000 DT_SIZE_K(64)>;
+//
+//				partitions {
+//					compatible = "fixed-partitions";
+//					#address-cells = <1>;
+//					#size-cells = <1>;
+//
+//					storage_partition: partition@0 {
+//						label = "storage";
+//						reg = <0x0 DT_SIZE_K(64)>;
+//					};
+//				};
+//			};
+//		};
+//	};
+};
+
+
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		boot_partition: partition@0 {
+			label = "mcuboot";
+			reg = <0x00000000 0x00018000>;
+		};
+
+		scratch_partition: partition@18000 {
+			label = "image-scratch";
+			reg = <0x00018000 0x00008000>;
+		};
+
+		slot0_partition: partition@20000 {
+			label = "image-0";
+			reg = <0x00020000 0x000e8000>;
+		};
+
+		slot1_partition: partition@108000 {
+			label = "image-1";
+			reg = <0x00108000 0x000e8000>;
+		};
+	};
+};
+
+&ext_flash_ctrl {
+	status = "okay";
+};
+
+&s28hl512t {
+	partitions {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		storage_partition: partition@0 {
+			label = "storage";
+			compatible = "zephyr,mapped-partition";
+			reg = <0x0 DT_SIZE_K(128)>;
+		};
+	};
+};
+
+
+&option_setting_ofs0 {
+	status = "disabled";
+};
+
+&option_setting_ofs2 {
+	status = "disabled";
+};
+
+&option_setting_dualsel {
+	status = "disabled";
+};
+
+&option_setting_ofs1_sec {
+	status = "disabled";
+};
+
+&option_setting_banksel_sec {
+	status = "disabled";
+};
+
+&option_setting_bps_sec {
+	status = "disabled";
+};
+
+&option_setting_pbps_sec {
+	status = "disabled";
+};
+
+&option_setting_ofs1_sel {
+	status = "disabled";
+};
+
+&option_setting_banksel_sel {
+	status = "disabled";
+};
+
+&option_setting_bps_sel {
+	status = "disabled";
+};
